@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pagos · Turnos Saavedra</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="navbar navbar-dark bg-dark sticky-top" id="header"></header>
+  <main id="app"></main>
+  <nav id="nav" aria-label="Navegación principal"></nav>
+  <div class="toast-container position-fixed bottom-0 start-50 translate-middle-x mb-5 pb-4">
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </div>
+
+  <script src="js/app.js"></script>
+  <script>
+    // Pantalla 4: Pagos (efectivo o transferencia; sin pasarela de pago en esta fase)
+    UI.pantalla('pagos', 'Pagos', 'Cobros pendientes y pagos del día');
+
+    let elegido = UI.param('turno') || '';
+    let metodo = 'efectivo';
+
+    function pendientes() {
+      // Turnos con saldo de los últimos 30 días (los "pendientes" sin iniciar todavía no se cobran).
+      const lista = [];
+      for (let atras = 0; atras <= 30; atras++) {
+        Store.turnosDelDia(Store.sumarDias(Store.hoy(), -atras)).forEach(t => {
+          if (t.estado !== 'pendiente' && Store.saldoDe(t) > 0) lista.push(t);
+        });
+      }
+      return lista;
+    }
+
+    function dibujar() {
+      const lista = pendientes();
+      if (elegido && !lista.some(t => t.id === elegido)) elegido = '';
+      const seleccion = elegido ? Store.turno(elegido) : null;
+      const totalDeuda = lista.reduce((s, t) => s + Store.saldoDe(t), 0);
+
+      let html = '<div class="row g-2 mb-3">' +
+        '<div class="col-6"><div class="card text-center"><div class="card-body py-2"><div class="fs-4 fw-bold">' + UI.dinero(totalDeuda) + '</div><small class="text-muted">Por cobrar (' + lista.length + ' turnos)</small></div></div></div>' +
+        '<div class="col-6"><div class="card text-center"><div class="card-body py-2"><div class="fs-4 fw-bold">' + UI.dinero(Store.ingresoDelDia(Store.hoy())) + '</div><small class="text-muted">Cobrado hoy</small></div></div></div>' +
+        '</div>';
+
+      if (seleccion) {
+        const cli = Store.cliente(seleccion.clienteId);
+        const saldo = Store.saldoDe(seleccion);
+        html +=
+          '<div class="card border-primary mb-3"><div class="card-header bg-primary text-white fw-bold">Registrar pago</div><div class="card-body">' +
+            '<div class="fw-bold">' + UI.esc(cli.nombre) + '</div>' +
+            '<div class="text-muted small mb-2">' + UI.esc(Store.servicio(seleccion.servicioId).nombre) + ' · ' + UI.esc(UI.fechaCorta(seleccion.fecha)) + '</div>' +
+            '<label for="monto" class="form-label">Valor recibido</label>' +
+            '<input type="number" id="monto" class="form-control" inputmode="numeric" min="1" max="' + saldo + '" value="' + saldo + '">' +
+            '<div class="form-text">El cliente debe ' + UI.dinero(saldo) + '. Puede registrar un abono menor.</div>' +
+            '<label class="form-label mt-3">Medio de pago</label>' +
+            '<div class="btn-group w-100 mb-3" role="group">' +
+              '<button type="button" class="btn ' + (metodo === 'efectivo' ? 'btn-primary' : 'btn-outline-primary') + '" data-metodo="efectivo">Efectivo</button>' +
+              '<button type="button" class="btn ' + (metodo === 'transferencia' ? 'btn-primary' : 'btn-outline-primary') + '" data-metodo="transferencia">Transferencia</button>' +
+            '</div>' +
+            '<div id="error" class="text-danger fw-bold mb-2" role="alert"></div>' +
+            '<button class="btn btn-success" id="guardar">Guardar pago</button> <button class="btn btn-outline-secondary" id="cerrar">Cancelar</button>' +
+          '</div></div>';
+      }
+
+      html += '<h5 class="mt-4">Pendientes de cobro</h5>';
+      if (!lista.length) html += '<div class="alert alert-success text-center">No hay cobros pendientes. ¡Todo al día!</div>';
+      html += '<ul class="list-group mb-3">';
+      lista.forEach(t => {
+        html +=
+          '<li class="list-group-item d-flex justify-content-between align-items-center">' +
+            '<div><div class="fw-bold">' + UI.esc(Store.cliente(t.clienteId).nombre) + '</div>' +
+            '<small class="text-muted">' + UI.esc(Store.servicio(t.servicioId).nombre) + ' · ' + UI.esc(UI.fechaCorta(t.fecha)) + '</small></div>' +
+            '<div class="text-end"><span class="badge text-bg-danger">Debe ' + UI.dinero(Store.saldoDe(t)) + '</span><br>' +
+            '<button class="btn btn-sm btn-primary mt-1" data-cobrar="' + t.id + '">Cobrar</button></div>' +
+          '</li>';
+      });
+      html += '</ul>';
+
+      const hoyPagos = Store.turnosDelDia(Store.hoy()).flatMap(t => Store.pagosDe(t.id).map(p => ({ p, t })));
+      html += '<h5 class="mt-4">Pagos de hoy</h5>';
+      if (!hoyPagos.length) html += '<div class="alert alert-secondary text-center">Todavía no hay pagos hoy.</div>';
+      html += '<ul class="list-group">';
+      hoyPagos.forEach(({ p, t }) => {
+        html += '<li class="list-group-item d-flex justify-content-between"><div><div class="fw-bold">' + UI.esc(Store.cliente(t.clienteId).nombre) + '</div>' +
+          '<small class="text-muted">' + (p.metodo === 'efectivo' ? 'Efectivo' : 'Transferencia') + '</small></div>' +
+          '<strong>' + UI.dinero(p.monto) + '</strong></li>';
+      });
+      html += '</ul>';
+      document.getElementById('app').innerHTML = html;
+    }
+
+    document.addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.cobrar) { elegido = b.dataset.cobrar; metodo = 'efectivo'; dibujar(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+      else if (b.dataset.metodo) {
+        const valor = document.getElementById('monto').value;
+        metodo = b.dataset.metodo; dibujar(); document.getElementById('monto').value = valor;
+      }
+      else if (b.id === 'cerrar') { elegido = ''; dibujar(); }
+      else if (b.id === 'guardar') {
+        const r = Store.agregarPago({ turnoId: elegido, monto: document.getElementById('monto').value, metodo });
+        if (!r.ok) { document.getElementById('error').textContent = r.error; UI.aviso(r.error, 'error'); return; }
+        elegido = ''; dibujar(); UI.aviso('Pago registrado');
+      }
+    });
+
+    dibujar();
+  </script>
+</body>
+</html>

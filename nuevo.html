@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nuevo turno · Turnos Saavedra</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="navbar navbar-dark bg-dark sticky-top" id="header"></header>
+  <main id="app"></main>
+  <nav id="nav" aria-label="Navegación principal"></nav>
+  <div class="toast-container position-fixed bottom-0 start-50 translate-middle-x mb-5 pb-4">
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </div>
+
+  <script src="js/app.js"></script>
+  <script>
+    // Pantalla 2: Nuevo turno (sin cruces de horario)
+    UI.pantalla('nuevo', 'Nuevo turno', 'Agende un servicio sin cruces de horario');
+
+    const estado = {
+      clienteId: UI.param('cliente') || '',
+      servicioId: '',
+      fecha: UI.param('fecha') && UI.param('fecha') >= Store.hoy() ? UI.param('fecha') : Store.hoy(),
+      hora: '',
+    };
+
+    function dibujar() {
+      const servicio = estado.servicioId ? Store.servicio(estado.servicioId) : null;
+
+      let html = '<div class="card"><div class="card-body">';
+      html += '<div class="mb-3"><label for="cliente" class="form-label fw-bold">Cliente</label>' +
+        '<select id="cliente" class="form-select"><option value="">Elija un cliente…</option>' +
+        Store.clientes().map(c => '<option value="' + c.id + '"' + (c.id === estado.clienteId ? ' selected' : '') + '>' + UI.esc(c.nombre) + ' · ' + UI.esc(c.placa) + '</option>').join('') +
+        '</select><div class="form-text">¿No está? <a href="clientes.html">Regístrelo en Clientes</a>.</div></div>';
+
+      html += '<div class="mb-3"><label for="servicio" class="form-label fw-bold">Servicio</label>' +
+        '<select id="servicio" class="form-select"><option value="">Elija un servicio…</option>' +
+        Store.servicios().map(s => '<option value="' + s.id + '"' + (s.id === estado.servicioId ? ' selected' : '') + '>' + UI.esc(s.nombre) + ' · ' + UI.dinero(s.precio) + '</option>').join('') +
+        '</select></div>';
+
+      html += '<div class="mb-3"><label for="fecha" class="form-label fw-bold">Fecha</label>' +
+        '<input type="date" id="fecha" class="form-control" value="' + estado.fecha + '" min="' + Store.hoy() + '"></div>';
+
+      html += '<div class="mb-3"><label class="form-label fw-bold">Hora <span class="fw-normal text-muted small">(las tachadas ya están ocupadas)</span></label>' +
+        '<div class="row row-cols-4 g-2">' +
+        Store.horas().map(h => {
+          const ocupada = Store.horaOcupada(estado.fecha, h);
+          const elegida = h === estado.hora;
+          return '<div class="col"><button type="button" class="franja btn w-100 ' + (elegida ? 'btn-primary' : 'btn-outline-primary') + '" data-hora="' + h + '"' + (ocupada ? ' disabled' : '') + '>' + UI.esc(h) + '</button></div>';
+        }).join('') + '</div></div>';
+
+      html += '<div id="error" class="text-danger fw-bold mb-2" role="alert"></div>';
+      html += '<button class="btn btn-primary w-100" id="guardar">Guardar turno</button>';
+      html += '</div></div>';
+
+      if (servicio) {
+        html += '<div class="alert alert-info mt-3 mb-0 d-flex justify-content-between"><span>Valor del servicio</span><strong>' + UI.dinero(servicio.precio) + '</strong></div>';
+      }
+      document.getElementById('app').innerHTML = html;
+    }
+
+    document.addEventListener('change', e => {
+      if (e.target.id === 'cliente') estado.clienteId = e.target.value;
+      if (e.target.id === 'servicio') { estado.servicioId = e.target.value; dibujar(); }
+      if (e.target.id === 'fecha') { estado.fecha = e.target.value; estado.hora = ''; dibujar(); }
+    });
+
+    document.addEventListener('click', e => {
+      const franja = e.target.closest('.franja');
+      if (franja && !franja.disabled) { estado.hora = franja.dataset.hora; dibujar(); return; }
+      if (e.target.id === 'guardar') {
+        const r = Store.agregarTurno(estado);
+        if (!r.ok) {
+          document.getElementById('error').textContent = r.error;
+          UI.aviso(r.error, 'error');
+          return;
+        }
+        location.href = 'index.html?fecha=' + estado.fecha + '&nuevo=1';
+      }
+    });
+
+    dibujar();
+  </script>
+</body>
+</html>
