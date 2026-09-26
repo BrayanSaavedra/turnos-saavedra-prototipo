@@ -2,8 +2,6 @@
 
 Prototipo funcional (HTML, CSS y JavaScript) de un sistema para gestionar **turnos, clientes y pagos** de un autolavado de barrio en Bogotá D.C.
 
-Proyecto académico de la asignatura *Fundamentos de diseño* (Corporación Universitaria Iberoamericana – IBERO). Continuación del documento de formulación y alcance (Actividad 2).
-
 > Todos los datos que aparecen al abrir el prototipo son **ficticios**. Nada se envía a ningún servidor: los datos se guardan solo en el navegador de quien lo prueba.
 
 ## Cómo probarlo
