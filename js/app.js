@@ -132,12 +132,13 @@ const Store = (() => {
     nombre = (nombre || '').trim();
     telefono = (telefono || '').replace(/\s+/g, '');
     placa = (placa || '').trim().toUpperCase();
-    if (nombre.length < 3) return { ok: false, error: 'Escriba el nombre completo del cliente.' };
+    if (nombre && nombre.length < 3) return { ok: false, error: 'Si escribe el nombre, debe tener al menos 3 letras (o déjelo vacío).' };
     if (!/^3\d{9}$/.test(telefono)) return { ok: false, error: 'El celular debe tener 10 dígitos y empezar por 3.' };
     if (!/^[A-Z]{3}\d{2}[A-Z0-9]$/.test(placa)) return { ok: false, error: 'La placa debe tener el formato ABC123 (o ABC12D para moto).' };
     if (!autoriza) return { ok: false, error: 'Se necesita la autorización de tratamiento de datos (Ley 1581 de 2012).' };
     const d = cargar();
     if (d.clientes.some(c => c.placa === placa)) return { ok: false, error: 'Ya existe un cliente con esa placa.' };
+    if (!nombre) nombre = 'Cliente ' + placa; // registro rápido: el nombre es opcional
     const nuevo = { id: 'c' + d.contador.c++, nombre, telefono, placa };
     d.clientes.push(nuevo);
     guardar();
@@ -225,11 +226,19 @@ const UI = (() => {
   ];
 
   // Barra superior y menú inferior con componentes de Bootstrap 5
+  const LOGO = '<svg width="36" height="36" viewBox="0 0 34 34" aria-hidden="true" class="flex-shrink-0">' +
+    '<rect width="34" height="34" rx="8" fill="#0d6efd"/>' +
+    '<path d="M17 6C17 6 8 15 8 21a9 9 0 0 0 18 0C26 15 17 6 17 6z" fill="#fff"/>' +
+    '<path d="M13 21l3 3 5-6" stroke="#0d6efd" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
   function pantalla(activa, titulo, subtitulo) {
     document.getElementById('header').innerHTML =
-      '<div class="container" style="max-width:560px">' +
-        '<span class="navbar-brand mb-0 h1">' + esc(titulo) + '</span>' +
-        (subtitulo ? '<span class="navbar-text small d-block">' + esc(subtitulo) + '</span>' : '') +
+      '<div class="container d-flex flex-nowrap align-items-center gap-2" style="max-width:560px">' + LOGO +
+        '<div class="flex-grow-1" style="min-width:0">' +
+          '<span class="navbar-brand mb-0 h1">' + esc(titulo) + '</span>' +
+          (subtitulo ? '<span class="navbar-text small d-block">' + esc(subtitulo) + '</span>' : '') +
+        '</div>' +
+        '<button type="button" class="btn btn-outline-light btn-sm rounded-circle flex-shrink-0" id="btn-ayuda" aria-label="Ayuda: cómo usar la aplicación" style="width:34px;height:34px">?</button>' +
       '</div>';
     document.getElementById('nav').innerHTML =
       '<div class="container" style="max-width:560px"><ul class="nav nav-pills nav-fill w-100">' +
@@ -237,6 +246,68 @@ const UI = (() => {
         '<li class="nav-item"><a class="nav-link py-2 px-1' + (clave === activa ? ' active' : '') + '" href="' + href + '"' +
         (clave === activa ? ' aria-current="page"' : '') + '>' + texto + '</a></li>').join('') +
       '</ul></div>';
+    document.getElementById('btn-ayuda').addEventListener('click', ayuda);
+    guiaPrimeraVez();
+  }
+
+  // ---------- Ventanas (modales de Bootstrap) ----------
+  // Cada ventana es un elemento nuevo que se elimina al cerrarse (evita reutilizar un modal viejo).
+  function ventana(id, cuerpoHTML) {
+    const el = document.createElement('div');
+    el.id = id + '-' + Date.now();
+    el.className = 'modal fade';
+    el.tabIndex = -1;
+    el.setAttribute('aria-hidden', 'true');
+    el.innerHTML = '<div class="modal-dialog modal-dialog-centered"><div class="modal-content">' + cuerpoHTML + '</div></div>';
+    document.body.appendChild(el);
+    el.addEventListener('hidden.bs.modal', () => {
+      const instancia = bootstrap.Modal.getInstance(el);
+      if (instancia) instancia.dispose();
+      el.remove();
+    });
+    return el;
+  }
+
+  // Ventana de confirmación (mensaje de confirmación antes de una acción importante).
+  function confirmar(titulo, mensaje, textoOk, claseOk) {
+    return new Promise(resolver => {
+      const el = ventana('modal-confirmar',
+        '<div class="modal-header"><h5 class="modal-title">' + esc(titulo) + '</h5>' +
+        '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>' +
+        '<div class="modal-body">' + esc(mensaje) + '</div>' +
+        '<div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">No, volver</button>' +
+        '<button type="button" class="btn ' + (claseOk || 'btn-primary') + '" id="modal-confirmar-ok">' + esc(textoOk || 'Sí, continuar') + '</button></div>');
+      const m = bootstrap.Modal.getOrCreateInstance(el);
+      let acepto = false;
+      el.querySelector('#modal-confirmar-ok').addEventListener('click', () => { acepto = true; m.hide(); });
+      el.addEventListener('hidden.bs.modal', () => resolver(acepto), { once: true });
+      m.show();
+    });
+  }
+
+  // Guía de uso (recomendación 2 de la evaluación: ayuda en el primer uso).
+  function ayuda() {
+    const el = ventana('modal-ayuda',
+      '<div class="modal-header"><h5 class="modal-title">Cómo usar Turnos Saavedra</h5>' +
+      '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>' +
+      '<div class="modal-body"><ol class="mb-2">' +
+      '<li><strong>Agenda:</strong> vea los turnos del día. Inicie y termine cada lavado con los botones de la tarjeta.</li>' +
+      '<li><strong>Nuevo:</strong> elija cliente, servicio, fecha y una hora libre. Las horas tachadas ya están ocupadas.</li>' +
+      '<li><strong>Clientes:</strong> registre a un cliente con placa y celular. El nombre es opcional.</li>' +
+      '<li><strong>Pagos:</strong> cobre en efectivo o transferencia. Puede registrar abonos.</li>' +
+      '<li><strong>Ingresos:</strong> vea lo cobrado por día, semana o mes.</li></ol>' +
+      '<p class="text-muted small mb-0">Es un prototipo: los datos son de ejemplo y se guardan solo en este navegador. El botón ? abre esta guía en cualquier momento.</p></div>' +
+      '<div class="modal-footer"><button type="button" class="btn btn-primary" data-bs-dismiss="modal">Entendido</button></div>');
+    bootstrap.Modal.getOrCreateInstance(el).show();
+  }
+
+  function guiaPrimeraVez() {
+    let vista = false;
+    try {
+      vista = localStorage.getItem('turnosSaavedra_guia') === '1';
+      localStorage.setItem('turnosSaavedra_guia', '1');
+    } catch (e) { vista = true; }
+    if (!vista) setTimeout(ayuda, 400);
   }
 
   let temporizador;
@@ -250,5 +321,5 @@ const UI = (() => {
 
   function param(nombre) { return new URLSearchParams(location.search).get(nombre); }
 
-  return { dinero, fecha, fechaCorta, hora12, esc, pantalla, aviso, param };
+  return { dinero, fecha, fechaCorta, hora12, esc, pantalla, aviso, param, confirmar, ayuda };
 })();
