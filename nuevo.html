@@ -21,11 +21,12 @@
   <script src="js/app.js"></script>
   <script>
     // Pantalla 2: Nuevo turno (sin cruces de horario)
-    UI.pantalla('nuevo', 'Nuevo turno', 'Agende un servicio sin cruces de horario');
+    UI.pantalla('nuevo', 'Nuevo turno', 'Cada lavador atiende un servicio a la vez');
 
     const estado = {
       clienteId: UI.param('cliente') || '',
       servicioId: '',
+      lavadorId: '',
       fecha: UI.param('fecha') && UI.param('fecha') >= Store.hoy() ? UI.param('fecha') : Store.hoy(),
       hora: '',
     };
@@ -44,15 +45,24 @@
         Store.servicios().map(s => '<option value="' + s.id + '"' + (s.id === estado.servicioId ? ' selected' : '') + '>' + UI.esc(s.nombre) + ' · ' + UI.dinero(s.precio) + '</option>').join('') +
         '</select></div>';
 
+      html += '<div class="mb-3"><label for="lavador" class="form-label fw-bold">Lavador</label>' +
+        '<select id="lavador" class="form-select"><option value="">Cualquiera disponible</option>' +
+        Store.lavadores().map(l => '<option value="' + l.id + '"' + (l.id === estado.lavadorId ? ' selected' : '') + '>' + UI.esc(l.nombre) +
+          (estado.hora && !Store.lavadorLibre(estado.fecha, estado.hora, l.id) ? ' (ocupado a esa hora)' : '') + '</option>').join('') +
+        '</select></div>';
+
       html += '<div class="mb-3"><label for="fecha" class="form-label fw-bold">Fecha</label>' +
         '<input type="date" id="fecha" class="form-control" value="' + estado.fecha + '" min="' + Store.hoy() + '"></div>';
 
-      html += '<div class="mb-3"><label class="form-label fw-bold">Hora <span class="fw-normal text-muted small">(las tachadas ya están ocupadas)</span></label>' +
+      html += '<div class="mb-3"><label class="form-label fw-bold">Hora <span class="fw-normal text-muted small">(las tachadas no tienen lavadores libres)</span></label>' +
         '<div class="row row-cols-4 g-2">' +
         Store.horas().map(h => {
-          const ocupada = Store.horaOcupada(estado.fecha, h);
+          const libres = Store.cuposLibres(estado.fecha, h);
+          const ocupada = estado.lavadorId ? !Store.lavadorLibre(estado.fecha, h, estado.lavadorId) : libres === 0;
           const elegida = h === estado.hora;
-          return '<div class="col"><button type="button" class="franja btn w-100 ' + (elegida ? 'btn-primary' : 'btn-outline-primary') + '" data-hora="' + h + '"' + (ocupada ? ' disabled' : '') + '>' + UI.esc(h) + '</button></div>';
+          const nota = estado.lavadorId ? (ocupada ? 'ocupado' : 'libre') : libres + (libres === 1 ? ' libre' : ' libres');
+          return '<div class="col"><button type="button" class="franja btn w-100 px-0 ' + (elegida ? 'btn-primary' : 'btn-outline-primary') + '" data-hora="' + h + '"' + (ocupada ? ' disabled' : '') + '>' +
+            UI.esc(h) + '<span class="d-block fw-normal" style="font-size:.68rem">' + nota + '</span></button></div>';
         }).join('') + '</div></div>';
 
       html += '<div id="error" class="text-danger fw-bold mb-2" role="alert"></div>';
@@ -68,6 +78,11 @@
     document.addEventListener('change', e => {
       if (e.target.id === 'cliente') estado.clienteId = e.target.value;
       if (e.target.id === 'servicio') { estado.servicioId = e.target.value; dibujar(); }
+      if (e.target.id === 'lavador') {
+        estado.lavadorId = e.target.value;
+        if (estado.hora && estado.lavadorId && !Store.lavadorLibre(estado.fecha, estado.hora, estado.lavadorId)) estado.hora = '';
+        dibujar();
+      }
       if (e.target.id === 'fecha') { estado.fecha = e.target.value; estado.hora = ''; dibujar(); }
     });
 

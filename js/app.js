@@ -7,13 +7,19 @@
 /* Store: datos y reglas del negocio                                   */
 /* ------------------------------------------------------------------ */
 const Store = (() => {
-  const KEY = 'turnosSaavedra_v1';
+  const KEY = 'turnosSaavedra_v2'; // v2: los turnos ahora tienen lavador
 
   const SERVICIOS = [
     { id: 's1', nombre: 'Lavado sencillo (carro)', precio: 20000 },
     { id: 's2', nombre: 'Lavado completo (carro)', precio: 35000 },
     { id: 's3', nombre: 'Lavado + brillado', precio: 50000 },
     { id: 's4', nombre: 'Lavado de moto', precio: 12000 },
+  ];
+
+  // Lavadores del negocio. Cambie esta lista para ajustar cuántos hay (nombres de ejemplo).
+  const LAVADORES = [
+    { id: 'l1', nombre: 'Lavador 1' }, { id: 'l2', nombre: 'Lavador 2' }, { id: 'l3', nombre: 'Lavador 3' },
+    { id: 'l4', nombre: 'Lavador 4' }, { id: 'l5', nombre: 'Lavador 5' }, { id: 'l6', nombre: 'Lavador 6' },
   ];
 
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -60,7 +66,8 @@ const Store = (() => {
       [...usadas].sort((a, b) => a - b).forEach(i => {
         const cli = clientes[Math.floor(azar() * clientes.length)];
         const ser = SERVICIOS[Math.floor(azar() * SERVICIOS.length)];
-        const turno = { id: 't' + idT++, clienteId: cli.id, servicioId: ser.id, fecha, hora: HORAS[i], estado: 'terminado' };
+        const lav = LAVADORES[Math.floor(azar() * LAVADORES.length)];
+        const turno = { id: 't' + idT++, clienteId: cli.id, servicioId: ser.id, lavadorId: lav.id, fecha, hora: HORAS[i], estado: 'terminado' };
         turnos.push(turno);
         let monto = ser.precio;
         if (deudas < 3 && atras % 7 === 3 && azar() > 0.5) { monto = Math.round(ser.precio / 2); deudas++; }
@@ -70,15 +77,16 @@ const Store = (() => {
 
     // Hoy: una agenda de ejemplo con distintos estados.
     const dia = [
-      ['08:00', 'c1', 's2', 'terminado', true, 'efectivo'],
-      ['09:30', 'c2', 's1', 'terminado', true, 'transferencia'],
-      ['11:00', 'c3', 's3', 'en_proceso', false, null],
-      ['14:00', 'c4', 's2', 'pendiente', false, null],
-      ['15:30', 'c5', 's4', 'pendiente', false, null],
+      ['08:00', 'c1', 's2', 'terminado', true, 'efectivo', 'l1'],
+      ['08:00', 'c6', 's1', 'terminado', true, 'transferencia', 'l2'], // mismo horario, otro lavador
+      ['09:30', 'c2', 's1', 'terminado', true, 'transferencia', 'l1'],
+      ['11:00', 'c3', 's3', 'en_proceso', false, null, 'l3'],
+      ['14:00', 'c4', 's2', 'pendiente', false, null, 'l2'],
+      ['15:30', 'c5', 's4', 'pendiente', false, null, 'l4'],
     ];
-    dia.forEach(([hora, cid, sid, estado, paga, metodo]) => {
+    dia.forEach(([hora, cid, sid, estado, paga, metodo, lid]) => {
       const ser = SERVICIOS.find(s => s.id === sid);
-      const t = { id: 't' + idT++, clienteId: cid, servicioId: sid, fecha: hoyISO, hora, estado };
+      const t = { id: 't' + idT++, clienteId: cid, servicioId: sid, lavadorId: lid, fecha: hoyISO, hora, estado };
       turnos.push(t);
       if (paga) pagos.push({ id: 'p' + idP++, turnoId: t.id, monto: ser.precio, metodo, fecha: hoyISO });
     });
@@ -122,9 +130,24 @@ const Store = (() => {
   function pagadoDe(t) { return pagosDe(t.id).reduce((s, p) => s + p.monto, 0); }
   function saldoDe(t) { return t.estado === 'cancelado' ? 0 : Math.max(0, precioDe(t) - pagadoDe(t)); }
 
-  // Regla clave (criterio de aceptación de la Act. 2): un solo turno por franja horaria.
-  function horaOcupada(fecha, hora) {
-    return cargar().turnos.some(t => t.fecha === fecha && t.hora === hora && t.estado !== 'cancelado');
+  // Regla clave (criterio de aceptación de la Act. 2): ningún lavador puede tener dos servicios a la misma hora.
+  // Una franja solo queda ocupada cuando TODOS los lavadores ya tienen un turno en ella.
+  const lavadores = () => LAVADORES;
+  const lavador = id => LAVADORES.find(l => l.id === id);
+  function lavadoresLibres(fecha, hora) {
+    const ocupados = new Set(cargar().turnos
+      .filter(t => t.fecha === fecha && t.hora === hora && t.estado !== 'cancelado')
+      .map(t => t.lavadorId));
+    return LAVADORES.filter(l => !ocupados.has(l.id));
+  }
+  const cuposLibres = (fecha, hora) => lavadoresLibres(fecha, hora).length;
+  const lavadorLibre = (fecha, hora, lavadorId) => lavadoresLibres(fecha, hora).some(l => l.id === lavadorId);
+  const horaOcupada = (fecha, hora) => cuposLibres(fecha, hora) === 0;
+
+  // Si no se elige lavador, se asigna el libre que lleva menos turnos ese día.
+  function elegirLavador(fecha, hora) {
+    const carga = id => cargar().turnos.filter(t => t.fecha === fecha && t.lavadorId === id && t.estado !== 'cancelado').length;
+    return lavadoresLibres(fecha, hora).sort((a, b) => carga(a.id) - carga(b.id))[0] || null;
   }
 
   /* ---------- Acciones ---------- */
@@ -145,15 +168,22 @@ const Store = (() => {
     return { ok: true, cliente: nuevo };
   }
 
-  function agregarTurno({ clienteId, servicioId, fecha, hora }) {
+  function agregarTurno({ clienteId, servicioId, fecha, hora, lavadorId }) {
     if (!clienteId) return { ok: false, error: 'Elija un cliente.' };
     if (!servicioId) return { ok: false, error: 'Elija un servicio.' };
     if (!fecha) return { ok: false, error: 'Elija la fecha.' };
     if (fecha < hoy()) return { ok: false, error: 'No se pueden agendar turnos en fechas pasadas.' };
     if (!hora) return { ok: false, error: 'Elija una hora disponible.' };
-    if (horaOcupada(fecha, hora)) return { ok: false, error: 'Ya hay un turno a esa hora. Elija otra franja.' };
+    if (lavadorId) {
+      if (!lavador(lavadorId)) return { ok: false, error: 'Ese lavador no existe.' };
+      if (!lavadorLibre(fecha, hora, lavadorId)) return { ok: false, error: lavador(lavadorId).nombre + ' ya tiene un turno a esa hora. Elija otra hora u otro lavador.' };
+    } else {
+      const elegido = elegirLavador(fecha, hora);
+      if (!elegido) return { ok: false, error: 'Ya no quedan lavadores libres a esa hora. Elija otra franja.' };
+      lavadorId = elegido.id;
+    }
     const d = cargar();
-    const nuevo = { id: 't' + d.contador.t++, clienteId, servicioId, fecha, hora, estado: 'pendiente' };
+    const nuevo = { id: 't' + d.contador.t++, clienteId, servicioId, lavadorId, fecha, hora, estado: 'pendiente' };
     d.turnos.push(nuevo);
     guardar();
     return { ok: true, turno: nuevo };
@@ -190,6 +220,7 @@ const Store = (() => {
   return {
     hoy, sumarDias, servicios, horas, clientes, cliente, servicio, turno,
     turnosDelDia, pagosDe, precioDe, pagadoDe, saldoDe, horaOcupada,
+    lavadores, lavador, lavadoresLibres, cuposLibres, lavadorLibre,
     agregarCliente, agregarTurno, cambiarEstado, agregarPago,
     ingresos, ingresoDelDia, restablecer,
   };
@@ -292,7 +323,7 @@ const UI = (() => {
       '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>' +
       '<div class="modal-body"><ol class="mb-2">' +
       '<li><strong>Agenda:</strong> vea los turnos del día. Inicie y termine cada lavado con los botones de la tarjeta.</li>' +
-      '<li><strong>Nuevo:</strong> elija cliente, servicio, fecha y una hora libre. Las horas tachadas ya están ocupadas.</li>' +
+      '<li><strong>Nuevo:</strong> elija cliente, servicio, fecha y hora; si quiere, también el lavador. Cada lavador atiende un servicio a la vez: la hora aparece tachada cuando ya no queda ninguno libre.</li>' +
       '<li><strong>Clientes:</strong> registre a un cliente con placa y celular. El nombre es opcional.</li>' +
       '<li><strong>Pagos:</strong> cobre en efectivo o transferencia. Puede registrar abonos.</li>' +
       '<li><strong>Ingresos:</strong> vea lo cobrado por día, semana o mes.</li></ol>' +

@@ -70,7 +70,7 @@
             '<div class="d-flex justify-content-between">' +
               '<div><h5 class="card-title mb-1">' + UI.esc(UI.hora12(t.hora)) + '</h5>' +
                 '<div class="fw-bold">' + UI.esc(cli.nombre) + '</div>' +
-                '<small class="text-muted">' + UI.esc(cli.placa) + ' · ' + UI.esc(ser.nombre) + '</small></div>' +
+                '<small class="text-muted">' + UI.esc(cli.placa) + ' · ' + UI.esc(ser.nombre) + (t.lavadorId ? ' · ' + UI.esc(Store.lavador(t.lavadorId).nombre) : '') + '</small></div>' +
               '<div class="text-end"><span class="badge text-bg-' + color + '">' + etiqueta + '</span><br>' +
                 (t.estado === 'pendiente'
                   ? '<small class="text-muted">Valor ' + UI.dinero(Store.precioDe(t)) + '</small>'
